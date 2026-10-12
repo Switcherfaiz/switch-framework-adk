@@ -24,7 +24,7 @@ async function main() {
   let chunks = 0;
   stream.listen((d) => {
     chunks += 1;
-    process.stdout.write(d);
+    console.log(d);
   });
 
   console.log(`[smoke] model=${MODEL} streaming…`);

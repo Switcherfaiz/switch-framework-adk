@@ -1,8 +1,8 @@
 # switch-framework-adk
 
-**Switch Framework ADK** — Agent Development Kit for building streaming agent apps on **Ollama** and **OpenRouter**.
+**Switch Framework ADK** — Agent Development Kit for streaming agent apps on **Ollama** and **OpenRouter**.
 
-> Part of **switch-framework**. Not affiliated with Google’s Agent Development Kit (`@google/adk`).
+Part of **switch-framework**. Not affiliated with Google’s `@google/adk`.
 
 ## Install
 
@@ -10,42 +10,79 @@
 npm install switch-framework-adk
 ```
 
-Peer runtime: **Node.js ≥ 18**. For Ollama locally, install and run [Ollama](https://ollama.com), then pull a model:
-
-```bash
-ollama pull qwen3.5:2b
-```
-
-For **thinking** models (e.g. `qwen3.5`), pass `runConfig: { think: false }` when you want fast, direct answers without a long internal reasoning stream.
-
-
-## Quick start
+Requires **Node.js ≥ 18**.
 
 ```js
 const { createADK, Agent, tool, Emitter, run } = require("switch-framework-adk");
+```
 
+---
+
+## Platforms
+
+Pick the platform when you create the ADK. That chooses how requests are sent.
+
+| `platform` | What it talks to | Typical `env` |
+|------------|------------------|---------------|
+| `"ollama"` | Local / remote Ollama | `"server"` (ollama npm) or `"default"` (fetch) |
+| `"openrouter"` | [OpenRouter](https://openrouter.ai) | `"server"` (SDK) or `"default"` (fetch) |
+
+### Ollama
+
+```js
 const adk = createADK({
-  env: "server",          // "server" | "default" (fetch) | "mobile" (stub)
-  platform: "ollama",     // "ollama" | "openrouter"
+  env: "server",
+  platform: "ollama",
   config: {
     OLLAMA_MODEL: "qwen3.5:2b",
     OLLAMA_HOST: "http://localhost:11434",
-    // API_KEY: process.env.OPENROUTER_API_KEY, // when platform: "openrouter"
+  },
+});
+```
+
+For thinking models (e.g. `qwen3.5`), add `think: false` in `runConfig` if you want a direct answer without a long reasoning stream.
+
+### OpenRouter
+
+```js
+const adk = createADK({
+  env: "server",
+  platform: "openrouter",
+  config: {
+    API_KEY: process.env.OPENROUTER_API_KEY,
   },
 });
 
-const echo = tool({
-  name: "echo",
-  description: "Echo text",
-  parameters: {
-    type: "object",
-    properties: { text: { type: "string" } },
-    required: ["text"],
+const chat = new Agent({
+  name: "chat",
+  model: "openai/gpt-4o-mini", // any OpenRouter model id
+  instructions: "Answer briefly.",
+});
+
+const text = await run(chat, "Hello!", {
+  onChunk: (delta) => console.log(delta),
+  runConfig: { stream: true },
+});
+
+console.log("done:", text);
+```
+
+Same `Agent` / `run` / `Emitter` API for both platforms — only `createADK({ platform, config })` and `Agent.model` change.
+
+---
+
+## Quick start (first request)
+
+```js
+const { createADK, Agent, Emitter, run } = require("switch-framework-adk");
+
+const adk = createADK({
+  env: "server",
+  platform: "ollama",
+  config: {
+    OLLAMA_MODEL: "qwen3.5:2b",
+    OLLAMA_HOST: "http://localhost:11434",
   },
-  execute: async ({ text }, ctx) => ({
-    echoed: text,
-    sessionId: ctx?.context?.sessionId,
-  }),
 });
 
 const chat = new Agent({
@@ -53,58 +90,112 @@ const chat = new Agent({
   model: "qwen3.5:2b",
   url: "http://localhost:11434",
   instructions: "You are a helpful assistant. Answer briefly.",
-  tools: [echo],
 });
 
 const stream = new Emitter();
-stream.listen((delta) => process.stdout.write(delta));
+stream.listen((delta) => console.log(delta));
 
 const text = await run(chat, "What is 2+2?", {
-  onChunk: (delta) => {},           // optional if you use emitter
-  emitter: stream,                  // optional dedicated stream channel
-  maxTurns: 8,                      // reserved for tool/handoff loops
-  context: {
-    sessionId: "demo",
-    files: {
-      // Blob / Buffer / base64 attachments (resolved in later phases)
-      // report: { id: "report", name: "a.pdf", mimeType: "application/pdf", data: buffer },
-    },
-  },
-  runConfig: {
-    stream: true,
-    // url, temperature, …
-  },
+  emitter: stream,
+  runConfig: { stream: true, think: false },
 });
 
-console.log("\n[done]", text);
+console.log("full reply:", text);
 ```
 
-You can also call `adk.run(agent, input, options)` — same API.
+You can also use `adk.run(chat, input, options)` — same thing.
 
-## Concepts
+---
 
-| Export | Role |
-|--------|------|
-| `createADK` | Wire **env** + **platform** + config once |
-| `Agent` | name, instructions, model, tools, url |
-| `tool` | name, description, parameters, `execute` |
-| `Emitter` | One instance = one stream channel (create many) |
-| `run` | `run(agent \| name, input, options)` — no `buildRunBody` required |
-| `buildRunBody` | Low-level escape hatch for advanced callers |
+## `Agent` fields
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `name` | yes | Agent id used in logs / registry |
+| `instructions` | no | System prompt (`systemPrompt` also accepted) |
+| `model` | no | Model id (falls back to ADK config default) |
+| `url` | no | Host override (Ollama base URL, or OpenRouter server URL) |
+| `tools` | no | Array of tools from `tool({ ... })` |
+| `handoffs` | no | Array of other `Agent` instances this agent may hand work to |
+| `id` | no | Defaults to `name` |
+
+```js
+const agent = new Agent({
+  name: "chat",
+  instructions: "Be brief.",
+  model: "qwen3.5:2b",
+  url: "http://localhost:11434",
+  tools: [echo],
+  handoffs: [mathAgent, historyAgent],
+});
+```
+
+---
+
+## `tool({ ... })` fields
+
+| Key | Required | Description |
+|-----|----------|-------------|
+| `name` | yes | Tool name sent to the model |
+| `description` | no | What the tool does (model reads this) |
+| `parameters` | no | JSON Schema for arguments (`type`, `properties`, `required`) |
+| `schema` | no | Full schema override (`{ name, description, parameters }`) |
+| `execute` | yes* | `async (args, ctx) => result` — runs when the tool is called |
+| `executor` | yes* | Alias for `execute` |
+
+\* One of `execute` or `executor` is required.
+
+```js
+const echo = tool({
+  name: "echo",
+  description: "Echo text back",
+  parameters: {
+    type: "object",
+    properties: {
+      text: { type: "string", description: "Text to echo" },
+    },
+    required: ["text"],
+  },
+  execute: async ({ text }, ctx) => {
+    console.log("session:", ctx?.context?.sessionId);
+    return { echoed: text };
+  },
+});
+```
+
+`ctx.context` is the same object you pass as `options.context` on `run` (including `files`).
+
+---
+
+## `run(agent, input, options)` 
 
 ### `input`
 
-- **string** — single user message  
-- **message[]** — full **conversation history** (and optional content parts)
+Like OpenAI-style agent input:
+
+- **string** → one user message  
+- **array of messages** → full conversation history
 
 ```js
-await run(agent, [
+// string
+await run(chat, "Hi");
+
+// history (OpenAI-like messages)
+await run(chat, [
   { role: "user", content: "Hi" },
   { role: "assistant", content: "Hello!" },
+  { role: "user", content: "What did I just say?" },
+]);
+```
+
+Content can also be parts (text / file / image refs). File **bytes** go in `context.files`; parts reference them by `id`:
+
+```js
+await run(chat, [
   {
     role: "user",
     content: [
-      { type: "input_text", text: "Use this file." },
+      { type: "input_text", text: "Summarize this PDF." },
       { type: "input_file", file: { id: "report" } },
     ],
   },
@@ -115,100 +206,231 @@ await run(agent, [
         id: "report",
         name: "report.pdf",
         mimeType: "application/pdf",
-        data: pdfBuffer, // Blob | Buffer | base64
+        data: pdfBuffer, // Blob | Buffer | base64 string
       },
     },
   },
-  emitter: stream,
+  onChunk: (delta) => console.log(delta),
 });
 ```
 
-History lives in **`input`**. Binary attachments live in **`context.files`** (OpenAI-style context DI).
+### `options` keys
 
-### Multiple Emitters & parallel runners
+| Key | Description |
+|-----|-------------|
+| `onChunk` | `(delta, raw?) => void` — called for each streamed text piece |
+| `emitter` | `Emitter` instance — ADK also `emit`s each text delta here |
+| `context` | App bag for tools / hooks. Use `context.files` for blobs. Not dumped raw to the model API. |
+| `maxTurns` | Safety cap for future tool / handoff loops (default `10`) |
+| `runConfig` | Platform request knobs (see below) |
+| `adk` | ADK instance (only needed for top-level `run` if you did not just call `createADK`) |
+
+### `runConfig` keys (common)
+
+| Key | Description |
+|-----|-------------|
+| `stream` | `true` / `false`. Defaults to `true` if `onChunk` or `emitter` is set |
+| `url` | Override host for this run only |
+| `model` | Override model for this run only |
+| `think` | Ollama thinking models: `false` to skip long reasoning |
+| `temperature` | Passed through when the platform supports it |
+| `tools` | Optional tools array override for this run |
+
+Other allowed platform fields can be added under `runConfig` over time.
+
+---
+
+## Emitter (streaming)
+
+One `Emitter` = one stream channel. Create as many as you need.
+
+```js
+const stream = new Emitter();
+
+stream.listen((delta) => {
+  console.log(delta);
+});
+
+await run(chat, "Tell me a short joke.", {
+  emitter: stream,
+  runConfig: { stream: true, think: false },
+});
+```
+
+Or use `onChunk` only:
+
+```js
+await run(chat, "Hi", {
+  onChunk: (delta) => console.log(delta),
+  runConfig: { stream: true, think: false },
+});
+```
+
+Fan-out one run to several emitters:
+
+```js
+const ui = new Emitter();
+const log = new Emitter();
+
+ui.listen((d) => console.log("ui:", d));
+log.listen((d) => console.log("log:", d));
+
+await run(chat, "Hi", {
+  onChunk: (delta) => {
+    ui.emit(delta);
+    log.emit(delta);
+  },
+  runConfig: { stream: true, think: false },
+});
+```
+
+---
+
+## Parallel runs (multi-runner)
+
+Run two agents at once; each can have its own Emitter:
 
 ```js
 const streamA = new Emitter();
 const streamB = new Emitter();
 
-await Promise.all([
-  run(agentA, promptA, { emitter: streamA }),
-  run(agentB, promptB, { emitter: streamB }),
+streamA.listen((d) => console.log("[A]", d));
+streamB.listen((d) => console.log("[B]", d));
+
+const [textA, textB] = await Promise.all([
+  run(agentA, "Say hello briefly.", {
+    emitter: streamA,
+    runConfig: { stream: true, think: false },
+  }),
+  run(agentB, "Give one short tip.", {
+    emitter: streamB,
+    runConfig: { stream: true, think: false },
+  }),
 ]);
+
+console.log("A done:", textA);
+console.log("B done:", textB);
 ```
 
-Fan-out one run to many Emitters inside `onChunk`, or merge tagged events into one listener.
+---
 
-### Agent object vs name
+## Router agent + handoffs
 
-Prefer **`run(agentInstance, …)`**. Registered names work if you called `createAgentRegistry` first.
+Define specialist agents, then a **router** that lists them in `handoffs`.
 
-### Handoffs
+```js
+const mathAgent = new Agent({
+  name: "math",
+  model: "qwen3.5:2b",
+  url: "http://localhost:11434",
+  instructions: "You solve math. Show short steps.",
+});
 
-**Manual today** — call `run` in sequence (or parallel). Declarative `Agent.handoffs` is planned.
+const historyAgent = new Agent({
+  name: "history",
+  model: "qwen3.5:2b",
+  url: "http://localhost:11434",
+  instructions: "You answer history questions briefly.",
+});
 
-## Environments & platforms
+const router = new Agent({
+  name: "router",
+  model: "qwen3.5:2b",
+  url: "http://localhost:11434",
+  instructions: `You are a triage router.
+Reply with exactly one word: math OR history OR chat
+based on the user question.`,
+  handoffs: [mathAgent, historyAgent],
+});
+```
 
-| `env` | Transport |
-|-------|-----------|
-| `server` | Ollama npm / OpenRouter SDK |
-| `default` | Global `fetch` |
-| `mobile` | Not implemented yet |
+**How to run today**
 
-| `platform` | Backend |
-|------------|---------|
-| `ollama` | Local or remote Ollama |
-| `openrouter` | OpenRouter API (`config.API_KEY`) |
+Automatic transfer inside one `run()` call is not enabled yet. You still **start with the router**, then **`run` the chosen specialist** yourself (using the router’s `handoffs` list):
 
-## Examples in this repo
+```js
+const question = "What is 17 times 23?";
+
+const choice = (await run(router, question, {
+  runConfig: { stream: false, think: false },
+}))
+  .trim()
+  .toLowerCase();
+
+console.log("router chose:", choice);
+
+const next =
+  router.handoffs.find((a) => a.name === choice) ||
+  router.handoffs[0];
+
+const stream = new Emitter();
+stream.listen((d) => console.log(d));
+
+const answer = await run(next, question, {
+  emitter: stream,
+  runConfig: { stream: true, think: false },
+});
+
+console.log("specialist:", next.name, "→", answer);
+```
+
+You can also skip the router and call a specialist directly:
+
+```js
+await run(mathAgent, "What is 12 * 8?", {
+  onChunk: (d) => console.log(d),
+  runConfig: { stream: true, think: false },
+});
+```
+
+Or chain agents in a fixed order (pipeline):
+
+```js
+const draft = await run(researcher, topic, {
+  runConfig: { stream: false, think: false },
+});
+
+const final = await run(writer, [
+  { role: "user", content: `Rewrite clearly:\n${draft}` },
+], {
+  onChunk: (d) => console.log(d),
+  runConfig: { stream: true, think: false },
+});
+```
+
+`Agent.handoffs` is the place to declare the graph; your app (or a future ADK runner loop) decides when to switch.
+
+---
+
+## `createADK` options
+
+| Key | Description |
+|-----|-------------|
+| `env` | `"server"` (Node SDKs) or `"default"` (global `fetch`) |
+| `platform` | `"ollama"` or `"openrouter"` |
+| `config` | Platform settings (`OLLAMA_HOST`, `OLLAMA_MODEL`, `API_KEY`, …) |
+
+---
+
+## Local smoke test (package)
 
 ```bash
 cd switch-framework-adk
 npm install
-
-# Smoke test against local Ollama
 npm run test:ollama
-
-# Dual-pane HTML UI (two inputs → two streamed response areas)
-npm run example:dual
-# open http://localhost:3847
 ```
 
-Demo agents live in `examples/shared/agents.js` with sample tools in `examples/shared/tools.js`.
+## Dual-chat HTML demo (outside this package)
 
-## Low-level API (optional)
-
-```js
-const { createADK, buildRunBody } = require("switch-framework-adk");
-
-const adk = createADK({ env: "server", platform: "ollama" });
-const registry = adk.createAgentRegistry({
-  chat: {
-    id: "chat",
-    name: "chat",
-    url: "http://localhost:11434",
-    systemPrompt: "Be brief.",
-  },
-});
-
-await registry.run("chat", {
-  body: buildRunBody({
-    model: "qwen3.5:2b",
-    messages: [{ role: "user", content: "Hi" }],
-    stream: true,
-  }),
-  onChunk: (d) => process.stdout.write(d),
-});
-```
-
-## Publish (later)
+From the parent repo (`OllamaChatTest`):
 
 ```bash
-npm login
-npm publish
+node examples/dual-chat/server.js
 ```
 
-Package name on npm: **`switch-framework-adk`**.
+Open http://localhost:3847 — two inputs, two streamed panes, parallel “Run both”.
+
+---
 
 ## License
 

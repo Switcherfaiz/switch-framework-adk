@@ -42,9 +42,7 @@
     "API_ANALYSIS.md"
   ],
   "scripts": {
-    "example:dual": "node examples/dual-chat/server.js",
-    "test:ollama": "node examples/ollama-smoke.js",
-    "start": "npm run example:dual"
+    "test:ollama": "node examples/ollama-smoke.js"
   },
   "dependencies": {
     "@openrouter/sdk": "^1.0.17",
