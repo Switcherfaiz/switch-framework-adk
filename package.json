@@ -1,0 +1,53 @@
+{
+  "name": "switch-framework-adk",
+  "version": "0.1.0",
+  "description": "Switch Framework ADK — Agent Development Kit for streaming multi-agent apps (Ollama, OpenRouter)",
+  "main": "index.js",
+  "license": "MIT",
+  "author": "Switcherfaiz",
+  "keywords": [
+    "switch-framework",
+    "adk",
+    "agent",
+    "ollama",
+    "openrouter",
+    "streaming",
+    "llm"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Switcherfaiz/switch-framework-adk.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Switcherfaiz/switch-framework-adk/issues"
+  },
+  "homepage": "https://github.com/Switcherfaiz/switch-framework-adk#readme",
+  "engines": {
+    "node": ">=18"
+  },
+  "files": [
+    "index.js",
+    "Agent.js",
+    "tool.js",
+    "run.js",
+    "agentinit",
+    "api",
+    "config",
+    "emitter",
+    "state",
+    "toolinit",
+    "utils",
+    "LICENSE",
+    "README.md"
+  ],
+  "scripts": {
+    "example:dual": "node examples/dual-chat/server.js",
+    "test:ollama": "node examples/ollama-smoke.js",
+    "start": "npm run example:dual"
+  },
+  "dependencies": {
+    "@openrouter/sdk": "^1.0.17",
+    "node-fetch": "^2.7.0",
+    "ollama": "^0.5.14"
+  }
+}

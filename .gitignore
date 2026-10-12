@@ -1,0 +1,14 @@
+node_modules/
+npm-debug.log*
+.env
+.env.*
+!.env.example
+.DS_Store
+*.log
+coverage/
+.idea/
+.vscode/
+dist/
+tmp/
+examples/_chat-req.json
+examples/_sse-test.js
