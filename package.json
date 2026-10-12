@@ -38,7 +38,8 @@
     "toolinit",
     "utils",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "API_ANALYSIS.md"
   ],
   "scripts": {
     "example:dual": "node examples/dual-chat/server.js",
