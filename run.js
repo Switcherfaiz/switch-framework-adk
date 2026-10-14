@@ -2,10 +2,7 @@ const { Agent } = require("./Agent");
 const { buildRunBody } = require("./utils");
 const { toolsToApiSchemas } = require("./tool");
 
-/**
- * Normalize user input → chat messages (history + attachments as text stubs for now).
- * Blob bytes live in context.files; content parts may reference them by id.
- */
+/** Normalize input (string or message list) into chat messages. */
 function normalizeInputToMessages(input) {
   if (typeof input === "string") {
     return [{ role: "user", content: input }];
@@ -102,8 +99,8 @@ async function runWithAdk(adk, agentOrName, input, options = {}) {
     runConfig = {},
   } = options;
 
-  void maxTurns; // reserved for tool / handoff loop
-  void context; // available for tools in later phases; files reserved
+  void maxTurns;
+  void context;
 
   const messages = normalizeInputToMessages(input);
   const model = runConfig.model || agent.model || adk.config.OLLAMA_MODEL;
@@ -121,6 +118,11 @@ async function runWithAdk(adk, agentOrName, input, options = {}) {
   const { url, stream: _s, model: _m, tools: runConfigTools, ...restConfig } = runConfig;
 
   const agentTools = agent.tools || [];
+  for (const t of agentTools) {
+    if (t && t.name && typeof adk.registerTool === "function") {
+      adk.registerTool(t);
+    }
+  }
   const apiTools =
     runConfigTools ||
     (agentTools.length ? toolsToApiSchemas(agentTools) : undefined);
@@ -140,7 +142,9 @@ async function runWithAdk(adk, agentOrName, input, options = {}) {
     def.url = adk.config.OLLAMA_HOST || "http://localhost:11434";
   }
 
-  if (!adk._agentRegistry) {
+  if (typeof adk.registerAgent === "function") {
+    adk.registerAgent(agent);
+  } else if (!adk._agentRegistry) {
     adk.createAgentRegistry({ [agent.name]: def });
   } else {
     adk._agentRegistry.registerAgent(agent.name, def);

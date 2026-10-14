@@ -8,13 +8,9 @@ const { buildRunBody } = require("./utils");
 const { Agent } = require("./Agent");
 const { tool, toolsToApiSchemas } = require("./tool");
 const { runWithAdk } = require("./run");
-
-/** Last createADK() instance — used by top-level run(). */
-let defaultAdk = null;
+const { setDefaultADK, getDefaultADK } = require("./context");
 
 /**
- * Create a Switch Framework ADK instance (env + platform + registries).
- *
  * @param {object} options
  * @param {"default"|"server"|"mobile"} [options.env]
  * @param {"ollama"|"openrouter"} [options.platform]
@@ -34,8 +30,43 @@ function createADK({ env = "server", platform = "ollama", config: configOverride
     _agentRegistry: null,
     _toolRegistry: null,
 
+    ensureAgentRegistry() {
+      if (!instance._agentRegistry) {
+        instance._agentRegistry = AgentRegistry.registerAgents(
+          {},
+          { platform: platformApi, fetchFn }
+        );
+      }
+      return instance._agentRegistry;
+    },
+
+    ensureToolRegistry() {
+      if (!instance._toolRegistry) {
+        instance._toolRegistry = ToolRegistry.registerTools({});
+      }
+      return instance._toolRegistry;
+    },
+
+    /** Register a tool by name (also done automatically by tool()). */
+    registerTool(toolDef) {
+      if (!toolDef || !toolDef.name) return instance;
+      instance.ensureToolRegistry().registerTool(toolDef.name, toolDef);
+      return instance;
+    },
+
+    /** Register an Agent instance (also done automatically by new Agent()). */
+    registerAgent(agentOrDef) {
+      const def =
+        agentOrDef && typeof agentOrDef.toDefinition === "function"
+          ? agentOrDef.toDefinition()
+          : agentOrDef;
+      if (!def || !def.name) return instance;
+      instance.ensureAgentRegistry().registerAgent(def.name, def);
+      return instance;
+    },
+
     createAgentRegistry(agentsMap) {
-      instance._agentRegistry = AgentRegistry.registerAgents(agentsMap, {
+      instance._agentRegistry = AgentRegistry.registerAgents(agentsMap || {}, {
         platform: platformApi,
         fetchFn,
       });
@@ -43,27 +74,23 @@ function createADK({ env = "server", platform = "ollama", config: configOverride
     },
 
     createToolRegistry(toolsMap) {
-      instance._toolRegistry = ToolRegistry.registerTools(toolsMap);
+      instance._toolRegistry = ToolRegistry.registerTools(toolsMap || {});
       return instance._toolRegistry;
     },
 
-    /**
-     * Ergonomic run: adk.run(agent, input, { onChunk, emitter, context, maxTurns, runConfig })
-     */
     run(agentOrName, input, options = {}) {
       return runWithAdk(instance, agentOrName, input, options);
     },
   };
 
-  defaultAdk = instance;
+  instance.ensureAgentRegistry();
+  instance.ensureToolRegistry();
+  setDefaultADK(instance);
   return instance;
 }
 
-/**
- * Top-level run — uses the last createADK() instance (or options.adk).
- */
 function run(agentOrName, input, options = {}) {
-  const adk = options.adk || defaultAdk;
+  const adk = options.adk || getDefaultADK();
   if (!adk) {
     throw new Error(
       "[switch-framework-adk] Call createADK() before run(), or pass options.adk"
@@ -71,10 +98,6 @@ function run(agentOrName, input, options = {}) {
   }
   const { adk: _drop, ...rest } = options;
   return runWithAdk(adk, agentOrName, input, rest);
-}
-
-function getDefaultADK() {
-  return defaultAdk;
 }
 
 module.exports = {

@@ -1,23 +1,35 @@
 /**
- * Smoke test against local Ollama.
- * Usage: npm run test:ollama
+ * Smoke test — Ollama (server env / SDK transport).
+ *
+ *   ollama serve
+ *   ollama pull qwen3.5:2b
+ *   npm run test:ollama
  */
-const { createADK, Agent, Emitter, run } = require("../index");
+const { createADK, Agent, tool, Emitter, run } = require("../index");
 
 const MODEL = process.env.OLLAMA_MODEL || "qwen3.5:2b";
+const HOST = process.env.OLLAMA_HOST || "http://127.0.0.1:11434";
 
 async function main() {
-  const adk = createADK({
+  createADK({
     env: "server",
     platform: "ollama",
-    config: { OLLAMA_MODEL: MODEL, OLLAMA_HOST: "http://127.0.0.1:11434" },
+    config: { OLLAMA_MODEL: MODEL, OLLAMA_HOST: HOST },
+  });
+
+  const ping = tool({
+    name: "ping",
+    description: "Returns pong",
+    parameters: { type: "object", properties: {} },
+    execute: async () => ({ ok: true }),
   });
 
   const agent = new Agent({
     name: "smoke",
     model: MODEL,
-    url: "http://127.0.0.1:11434",
+    url: HOST,
     instructions: "Reply with exactly one short sentence. No preamble.",
+    tools: [ping],
   });
 
   const stream = new Emitter();
@@ -27,28 +39,20 @@ async function main() {
     console.log(d);
   });
 
-  console.log(`[smoke] model=${MODEL} streaming…`);
+  console.log(`[smoke:ollama] model=${MODEL}`);
   const text = await run(agent, "Say hello in one short sentence.", {
-    adk,
     emitter: stream,
-    maxTurns: 3,
-    context: { sessionId: "smoke", files: {} },
-    runConfig: {
-      stream: true,
-      // qwen3.5 thinking models — keep replies fast for smoke
-      think: false,
-    },
+    context: { sessionId: "smoke" },
+    runConfig: { stream: true, think: false },
   });
 
-  console.log("\n[smoke] full:", text.slice(0, 200) + (text.length > 200 ? "…" : ""));
-  console.log("[smoke] chunks:", chunks);
-  if (!text || !chunks) {
-    throw new Error("empty response or no chunks");
-  }
-  console.log("[smoke] OK");
+  console.log("\n[smoke:ollama] full:", text.slice(0, 200));
+  console.log("[smoke:ollama] chunks:", chunks);
+  if (!text || !chunks) throw new Error("empty response or no chunks");
+  console.log("[smoke:ollama] OK");
 }
 
 main().catch((err) => {
-  console.error("[smoke] FAIL:", err.message);
+  console.error("[smoke:ollama] FAIL:", err.message);
   process.exit(1);
 });

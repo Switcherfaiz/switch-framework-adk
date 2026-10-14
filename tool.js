@@ -1,13 +1,15 @@
+const { getDefaultADK } = require("./context");
+
 /**
- * Define a tool for agents. `execute` receives (args, runContext).
+ * Define a tool. If an ADK was already created, the tool is registered on it.
  *
  * @param {object} def
  * @param {string} def.name
  * @param {string} [def.description]
- * @param {object} [def.parameters] — JSON Schema object for arguments
- * @param {object} [def.schema] — full schema override
+ * @param {object} [def.parameters]
+ * @param {object} [def.schema]
  * @param {Function} [def.execute]
- * @param {Function} [def.executor] — alias for execute
+ * @param {Function} [def.executor]
  */
 function tool(def = {}) {
   if (!def.name || typeof def.name !== "string") {
@@ -25,7 +27,7 @@ function tool(def = {}) {
     parameters,
   };
 
-  return {
+  const toolDef = {
     name: def.name,
     description: def.description || "",
     parameters,
@@ -33,9 +35,16 @@ function tool(def = {}) {
     execute,
     executor: execute,
   };
+
+  const adk = getDefaultADK();
+  if (adk && typeof adk.registerTool === "function") {
+    adk.registerTool(toolDef);
+  }
+
+  return toolDef;
 }
 
-/** Convert tool defs to OpenAI/Ollama-style tools array for the API body. */
+/** Build platform `tools` array from tool definitions. */
 function toolsToApiSchemas(tools = []) {
   return tools.map((t) => {
     const schema = t.schema || {
@@ -48,7 +57,8 @@ function toolsToApiSchemas(tools = []) {
       function: {
         name: schema.name || t.name,
         description: schema.description || t.description || "",
-        parameters: schema.parameters || t.parameters || { type: "object", properties: {} },
+        parameters:
+          schema.parameters || t.parameters || { type: "object", properties: {} },
       },
     };
   });
